@@ -28,6 +28,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation group: 'kr.dogfoot', name: 'hwplib', version: '1.1.8'
     //implementation fileTree(dir: 'libs', includes: ['*.jar'])
+    implementation group: 'com.oracle.database.jdbc', name: 'ojdbc8', version: '23.2.0.0'
+    implementation group: 'org.mybatis.spring.boot', name: 'mybatis-spring-boot-starter', version: '2.2.0'
     implementation 'org.apache.pdfbox:pdfbox:2.0.29'
     compileOnly 'org.projectlombok:lombok'
     developmentOnly 'org.springframework.boot:spring-boot-devtools'
