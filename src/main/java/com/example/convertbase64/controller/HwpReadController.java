@@ -33,13 +33,43 @@ public class HwpReadController implements ControlFilter {
                     Control control = result.get(0); // 첫 번째 테이블 가져오기
                     ControlTable table = (ControlTable) control;
 
-                    System.out.println("========== 학생 성적표 ==========");
+                    System.out.println("========== 결과 ==========");
                     for (Row row : table.getRowList()) {
                         for (Cell cell : row.getCellList()) {
                             System.out.print(cell.getParagraphList().getNormalString() + " | ");
                         }
                         System.out.println();
                     }
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    public void readAndPrintTableAll(String filePath) {
+        try {
+            HWPFile hwpFile = HWPReader.fromFile(filePath);
+            if (hwpFile != null) {
+                ArrayList<Control> tables = ControlFinder.find(hwpFile, this); // 모든 테이블 찾기
+                if (tables != null && !tables.isEmpty()) {
+                    System.out.println("========== 결과 ==========");
+                    int tableIndex = 1;
+                    for (Control control : tables) {
+                        if (control instanceof ControlTable) { // 테이블인지 확인
+                            ControlTable table = (ControlTable) control;
+                            System.out.println("\n[테이블 " + tableIndex + "]");
+                            for (Row row : table.getRowList()) {
+                                for (Cell cell : row.getCellList()) {
+                                    System.out.print(cell.getParagraphList().getNormalString() + " | ");
+                                }
+                                System.out.println();
+                            }
+                            tableIndex++;
+                        }
+                    }
+                } else {
+                    System.out.println("테이블이 없습니다.");
                 }
             }
         } catch (Exception e) {
@@ -79,10 +109,11 @@ public class HwpReadController implements ControlFilter {
 
     public static void main(String[] args) {
         HwpReadController hwpReader = new HwpReadController();
-        String filePath = "C:\\Users\\MEDIAZEN\\Desktop\\test.hwp"; // 예시 파일 경로
+        String filePath = "C:\\Users\\MEDIAZEN\\Desktop\\변환폴더(수요일까지)\\(우성정공_구축및고도화) 최종완료보고서.hwp"; // 예시 파일 경로
         if (hwpReader.isHwpFile(filePath)) {
-//            hwpReader.readAndPrintTable(filePath);
-            hwpReader.readAndPrintText(filePath);
+            //hwpReader.readAndPrintText(filePath);
+            //hwpReader.readAndPrintTable(filePath);
+            hwpReader.readAndPrintTableAll(filePath);
         } else {
             System.out.println("확장자가 hwp나 hwpx가 아닌 파일은 실행할 수 없습니다: " + filePath);
         }
