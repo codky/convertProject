@@ -19,6 +19,25 @@ public class HwpReadController {
         this.hwpReadService = hwpReadService;
     }
 
+    @PostMapping("/read-content")
+    public String readContentFromFile(@RequestParam("file") MultipartFile file) {
+        try {
+            // 임시 파일 생성
+            File tempFile = File.createTempFile("uploaded", ".hwp");
+            file.transferTo(tempFile);
+
+            // HWP 파일 처리
+            String result = hwpReadService.processHwpFileWithImages(tempFile.getAbsolutePath());
+
+            // 임시 파일 삭제
+            tempFile.delete();
+
+            return result;
+        } catch (IOException e) {
+            return "파일 처리 중 오류 발생: " + e.getMessage();
+        }
+    }
+
     @PostMapping("/read-table")
     public String readTableFromFile(@RequestParam("file") MultipartFile file) {
         try {
