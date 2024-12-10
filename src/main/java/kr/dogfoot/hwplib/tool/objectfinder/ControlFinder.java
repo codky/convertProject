@@ -41,6 +41,7 @@ public class ControlFinder {
 
     public static ArrayList<Control> find(HWPFile hwpFile, ControlFilter filter) {
         ControlFinder finder = new ControlFinder();
+        System.out.println("Calling ControlFinder.find()");
         return finder.go(hwpFile, filter);
     }
 
@@ -75,6 +76,9 @@ public class ControlFinder {
         if (c instanceof GsoControl) {
             GsoControl gsoControl = (GsoControl) c;
             switch (gsoControl.getGsoType()) { // GsoControlType 사용
+                case Picture:
+                    forPicture((ControlPicture) gsoControl, hwpFile);
+                    break;
                 case Rectangle:
                     forRectangle((ControlRectangle) gsoControl, hwpFile);
                     break;
