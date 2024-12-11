@@ -1,28 +1,159 @@
 package com.example.convertbase64.service;
 
 import kr.dogfoot.hwplib.object.HWPFile;
+import kr.dogfoot.hwplib.object.bindata.BinData;
+import kr.dogfoot.hwplib.object.bindata.EmbeddedBinaryData;
 import kr.dogfoot.hwplib.object.bodytext.Section;
 import kr.dogfoot.hwplib.object.bodytext.control.Control;
 import kr.dogfoot.hwplib.object.bodytext.control.ControlTable;
 import kr.dogfoot.hwplib.object.bodytext.control.ControlType;
 import kr.dogfoot.hwplib.object.bodytext.control.gso.ControlPicture;
+import kr.dogfoot.hwplib.object.bodytext.control.gso.GsoControl;
+import kr.dogfoot.hwplib.object.bodytext.control.gso.GsoControlType;
 import kr.dogfoot.hwplib.object.bodytext.control.table.Cell;
 import kr.dogfoot.hwplib.object.bodytext.control.table.Row;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.Paragraph;
-import kr.dogfoot.hwplib.object.docinfo.BinData;
 import kr.dogfoot.hwplib.object.docinfo.borderfill.fillinfo.PictureInfo;
 import kr.dogfoot.hwplib.reader.HWPReader;
 import kr.dogfoot.hwplib.tool.objectfinder.ControlFinder;
 import org.springframework.stereotype.Service;
 
-import java.nio.file.Files;
-import java.nio.file.Paths;
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.*;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.List;
 
 @Service
 public class HwpReadService {
+
+    public String processHwpFileWithImg2(String filePath) {
+        StringBuilder result = new StringBuilder();
+        try {
+            // HWP 파일 읽기
+            HWPFile hwpFile = HWPReader.fromFile(filePath);
+            if (hwpFile == null) {
+                return "HWP 파일을 읽을 수 없습니다.";
+            }
+
+            // HWP 파일 순회
+            int sectionIndex = 1;
+            for (Section section : hwpFile.getBodyText().getSectionList()) {
+                result.append("\n========== 섹션 ").append(sectionIndex).append(" ==========\n");
+
+                // 문단 순회
+                for (Paragraph paragraph : section.getParagraphs()) {
+                    // 텍스트 처리
+                    String text = paragraph.getNormalString();
+                    if (text != null && !text.isEmpty()) {
+                        result.append(text).append("\n");
+                    }
+
+                    // 컨트롤 처리
+                    if (paragraph.getControlList() != null) {
+                        for (Control control : paragraph.getControlList()) {
+                            if (control.getType() == ControlType.Gso) {
+                                // Gso 컨트롤 처리
+                                if (control instanceof GsoControl) {
+                                    GsoControl gsoControl = (GsoControl) control;
+                                    if (gsoControl.getGsoType() == GsoControlType.Picture) {
+                                        processImage((ControlPicture) gsoControl, result, hwpFile);
+                                    }
+                                }
+                            } else if (control.getType() == ControlType.Table) {
+                                // 테이블 처리 및 이미지 탐지
+                                processTable((ControlTable) control, result, filePath, hwpFile);
+                            } else {
+                                result.append("기타 컨트롤: ").append(control.getType()).append("\n");
+                            }
+                        }
+                    }
+                }
+
+                sectionIndex++;
+            }
+        } catch (Exception e) {
+            result.append("오류 발생: ").append(e.getMessage());
+        }
+        return result.toString();
+    }
+
+    // 테이블 처리 메서드 (이미지 포함)
+    private void processTable(ControlTable table, StringBuilder result, String filePath, HWPFile hwpFile) throws UnsupportedEncodingException {
+        for (Row row : table.getRowList()) {
+            for (Cell cell : row.getCellList()) {
+                // 셀 텍스트 처리
+                String cellText = cell.getParagraphList().getNormalString();
+                if (cellText != null && !cellText.isEmpty()) {
+                    result.append(cellText);
+                }
+
+                // 셀 내 컨트롤 탐지
+                for (Paragraph paragraph : cell.getParagraphList()) {
+                    if (paragraph.getControlList() != null) {
+                        for (Control control : paragraph.getControlList()) {
+                            if (control instanceof GsoControl) {
+                                GsoControl gsoControl = (GsoControl) control;
+                                if (gsoControl.getGsoType() == GsoControlType.Picture) {
+                                    processImage((ControlPicture) gsoControl, result, hwpFile);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            result.append("\n");
+        }
+    }
+
+    // 이미지 처리 메서드
+    private void processImage(ControlPicture picture, StringBuilder result, HWPFile hwpFile) {
+        try {
+            PictureInfo pictureInfo = picture.getShapeComponentPicture().getPictureInfo();
+            int binItemID = pictureInfo.getBinItemID();
+
+            // BinData 추출
+            EmbeddedBinaryData imageData = extractBinDataFromHWP(binItemID, result, hwpFile);
+            if (imageData != null) {
+                // 이미지 파일 저장 경로 생성
+                String outputFolderPath = "C:\\Users\\MEDIAZEN\\Desktop\\변환폴더(수요일까지)\\" + hwpFile.getClass().getName();
+                File outputFolder = new File(outputFolderPath);
+                if (!outputFolder.exists()) {
+                    outputFolder.mkdirs();
+                }
+                String outputPath = outputFolderPath + "\\" + imageData.getName() + ".jpg";
+
+                // 파일 저장
+                try (FileOutputStream fos = new FileOutputStream(outputPath)) {
+                    fos.write(imageData.getData());
+                    //result.append("\n[이미지 저장 완료]: ").append(outputPath).append("\n");
+                    System.out.println("이미지가 저장되었습니다: " + outputPath);
+                }
+            } else {
+                result.append("\n[이미지 없음]\n");
+            }
+        } catch (Exception e) {
+            result.append("\n[이미지 처리 오류]: ").append(e.getMessage()).append("\n");
+        }
+    }
+
+    // BinData 추출 메서드
+    private EmbeddedBinaryData extractBinDataFromHWP(int binItemID, StringBuilder result, HWPFile hwpFile) {
+        try {
+            ArrayList<kr.dogfoot.hwplib.object.docinfo.BinData> binDataList = hwpFile.getDocInfo().getBinDataList();
+            for (kr.dogfoot.hwplib.object.docinfo.BinData binData : binDataList) {
+                if (binData.getBinDataID() == binItemID) {
+                    EmbeddedBinaryData embeddedBinaryData = hwpFile.getBinData().getEmbeddedBinaryDataList().get(binData.getBinDataID() - 1);
+                    result.append("\n 이미지명: ").append(embeddedBinaryData.getName()).append("\n");
+                    return embeddedBinaryData;
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("BinData 추출 오류: " + e.getMessage());
+        }
+        return null;
+    }
+
 
     public String processHwpFileWithImg(String filePath) {
         StringBuilder result = new StringBuilder();
@@ -33,11 +164,93 @@ public class HwpReadService {
                 return "HWP 파일을 읽을 수 없습니다.";
             }
 
+            // HWP 파일 이름 가져오기
+            File hwpFileObj = new File(filePath);
+            String hwpFileName = hwpFileObj.getName().replaceFirst("\\.hwp$", "");
+
+            // 출력 폴더 생성
+            String outputFolderPath = "C:\\Users\\MEDIAZEN\\Desktop\\변환폴더(수요일까지)\\" + hwpFileName;
+            File outputFolder = new File(outputFolderPath);
+            if (!outputFolder.exists()) {
+                outputFolder.mkdirs();
+            }
+
+            // txt 폴더와 이미지 폴더 생성
+            File txtFolder = new File(outputFolderPath + "\\txt");
+            File imageFolder = new File(outputFolderPath + "\\images");
+            if (!txtFolder.exists()) {
+                txtFolder.mkdirs();
+            }
+            if (!imageFolder.exists()) {
+                imageFolder.mkdirs();
+            }
+            // BinData 처리
+            BinData binData = hwpFile.getBinData();
+            ArrayList<EmbeddedBinaryData> list = binData.getEmbeddedBinaryDataList();
+            if (!list.isEmpty()) {
+                System.out.println("list size = " + list.size());
+                int imageIndex = 1; // 이미지 번호
+                for (EmbeddedBinaryData embeddedBinaryData : list) {
+                    byte[] data = embeddedBinaryData.getData();
+                    if (data != null) {
+                        try {
+                            // 확장자 확인
+                            String extension = embeddedBinaryData.getName().toLowerCase();
+                            if (extension.endsWith(".bmp")) {
+                                // BMP 데이터를 처리
+                                ByteArrayInputStream bais = new ByteArrayInputStream(data);
+                                BufferedImage bufferedImage = ImageIO.read(bais);
+                                if (bufferedImage != null) {
+                                    // JPEG로 변환하기 위한 OutputStream 생성
+                                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                                    ImageIO.write(bufferedImage, "jpeg", baos);
+                                    data = baos.toByteArray();
+                                    extension = "jpeg";
+                                }
+                            }
+
+                            // Base64로 인코딩
+                            String base64Data = Base64.getEncoder().encodeToString(data);
+
+                            // 텍스트 파일로 저장
+                            String textFileName = txtFolder.getPath() + "\\" + hwpFileName + "_이미지_" + imageIndex + ".txt";
+                            try (FileOutputStream fos = new FileOutputStream(textFileName)) {
+                                fos.write(base64Data.getBytes());
+                                System.out.println("Base64 데이터가 텍스트 파일로 저장되었습니다: " + textFileName);
+                            }
+
+                            // 이미지 파일로 저장
+                            String imageFileName = imageFolder.getPath() + "\\" + hwpFileName + "_이미지_" + imageIndex + "." + extension;
+                            try (FileOutputStream fos = new FileOutputStream(imageFileName)) {
+                                fos.write(data);
+                                System.out.println("이미지가 저장되었습니다: " + imageFileName);
+                            }
+
+                            result.append("\n 이미지명: ").append(imageIndex).append(" ").append(embeddedBinaryData.getName()).append(" ")
+                                    .append("\n저장 경로: ").append(imageFileName).append("\n");
+
+                            imageIndex++;
+                        } catch (IOException e) {
+                            System.out.println("이미지 처리 중 오류 발생 for image " + imageIndex + ": " + e.getMessage());
+                            result.append("\n========== 이미지 ").append(imageIndex).append(": 처리 중 오류 발생 ==========").append("\n").append(e.getMessage()).append("\n");
+                            imageIndex++;
+                        }
+                    } else {
+                        System.out.println("Embedded binary data is null for image " + imageIndex);
+                        result.append("\n========== 이미지 ").append(imageIndex).append(": Embedded Binary Data is null ==========").append("\n");
+                        imageIndex++;
+                    }
+                }
+            } else {
+                System.out.println("No embedded binary data found.");
+                result.append("\n========== No Embedded Binary Data Found ==========").append("\n");
+            }
+
             // 섹션별로 순회
             int sectionIndex = 1;
 
             for (Section section : hwpFile.getBodyText().getSectionList()) {
-                result.append("\n========== 섹션 ").append(sectionIndex).append(" ==========\n");
+                result.append("\n========== 섹션 ").append(sectionIndex).append(" ==========" + "\n");
 
                 // 섹션 내 텍스트 및 테이블 처리
                 for (Paragraph paragraph : section.getParagraphs()) {
@@ -56,6 +269,60 @@ public class HwpReadService {
                                     for (Row row : table.getRowList()) {
                                         for (Cell cell : row.getCellList()) {
                                             result.append(cell.getParagraphList().getNormalString());
+                                            int borderFillId = cell.getListHeader().getBorderFillId();
+//                                            BorderFill borderFill = hwpFile.getDocInfo().getBorderFillList().get(borderFillId - 1);
+//                                            borderFill.getFillInfo().getImageFill().getPictureInfo().getBinItemID();
+                                            ArrayList<kr.dogfoot.hwplib.object.docinfo.BinData> binDataList = hwpFile.getDocInfo().getBinDataList();
+                                            EmbeddedBinaryData embeddedBinaryData = hwpFile.getBinData().getEmbeddedBinaryDataList().get(binDataList.get(0).getBinDataID());
+                                            byte[] data = embeddedBinaryData.getData();
+                                            if (data != null) {
+                                                try {
+                                                    // 확장자 확인
+                                                    String extension = embeddedBinaryData.getName().toLowerCase();
+                                                    if (extension.endsWith(".bmp")) {
+                                                        // BMP 데이터를 처리
+                                                        ByteArrayInputStream bais = new ByteArrayInputStream(data);
+                                                        BufferedImage bufferedImage = ImageIO.read(bais);
+                                                        if (bufferedImage != null) {
+                                                            // JPEG로 변환하기 위한 OutputStream 생성
+                                                            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                                                            ImageIO.write(bufferedImage, "jpeg", baos);
+                                                            data = baos.toByteArray();
+                                                            extension = "jpeg";
+                                                        }
+                                                    }
+
+                                                    // Base64로 인코딩
+                                                    String base64Data = Base64.getEncoder().encodeToString(data);
+
+                                                    // 텍스트 파일로 저장
+                                                    String textFileName = txtFolder.getPath() + "\\" + hwpFileName + "_이미지_" + ".txt";
+                                                    try (FileOutputStream fos = new FileOutputStream(textFileName)) {
+                                                        fos.write(base64Data.getBytes());
+                                                        System.out.println("Base64 데이터가 텍스트 파일로 저장되었습니다: " + textFileName);
+                                                    }
+
+                                                    // 이미지 파일로 저장
+                                                    String imageFileName = imageFolder.getPath() + "\\" + hwpFileName + "_이미지_" + "." + extension;
+                                                    try (FileOutputStream fos = new FileOutputStream(imageFileName)) {
+                                                        fos.write(data);
+                                                        System.out.println("이미지가 저장되었습니다: " + imageFileName);
+                                                    }
+
+                                                    result.append("\n 이미지명: ").append(" ").append(embeddedBinaryData.getName()).append(" ")
+                                                            .append("\n저장 경로: ").append(imageFileName).append("\n");
+
+
+                                                } catch (IOException e) {
+                                                    System.out.println("이미지 처리 중 오류 발생 for image " + ": " + e.getMessage());
+                                                    result.append("\n========== 이미지 ").append(": 처리 중 오류 발생 ==========").append("\n").append(e.getMessage()).append("\n");
+
+                                                }
+                                            } else {
+                                                System.out.println("Embedded binary data is null for image ");
+                                                result.append("\n========== 이미지 ").append(": Embedded Binary Data is null ==========").append("\n");
+                                            }
+
                                         }
                                         result.append("\n");
                                     }
@@ -66,56 +333,12 @@ public class HwpReadService {
                         result.append("오류 발생: ").append(e.getMessage()).append("\n");
                     }
                 }
-
-                // 이미지 처리 (ControlFinder 사용)
-                ArrayList<Control> controls = ControlFinder.find(hwpFile,
-                        (control, paragraph, sectionObj) -> control instanceof ControlPicture);
-
-                for (Control control : controls) {
-                    if (control instanceof ControlPicture) {
-                        ControlPicture picture = (ControlPicture) control;
-                        String base64Image = extractImageFromPicture(picture, hwpFile);
-                        if (base64Image != null) {
-                            result.append("\n[이미지(Base64)]\n").append(base64Image).append("\n");
-                        }
-                    }
-                }
-
                 sectionIndex++;
             }
         } catch (Exception e) {
             result.append("오류 발생: ").append(e.getMessage());
         }
         return result.toString();
-    }
-
-
-
-    private String extractImageFromPicture(ControlPicture picture, HWPFile hwpFile) {
-        try {
-            // PictureInfo에서 BinItemID 가져오기
-            PictureInfo pictureInfo = picture.getShapeComponentPicture().getPictureInfo();
-            int binItemID = pictureInfo.getBinItemID();
-
-            // BinData 추출
-            List<BinData> binDataList = hwpFile.getDocInfo().getBinDataList();
-            for (BinData binData : binDataList) {
-                if (binData.getBinDataID() == binItemID) {
-                    String linkPath = binData.getAbsolutePathForLink();
-                    if (linkPath == null || linkPath.isEmpty()) {
-                        linkPath = binData.getRelativePathForLink();
-                    }
-                    if (linkPath != null && !linkPath.isEmpty()) {
-                        byte[] imageBytes = Files.readAllBytes(Paths.get(linkPath));
-                        return Base64.getEncoder().encodeToString(imageBytes);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("이미지 추출 중 오류 발생: " + e.getMessage());
-            e.printStackTrace();
-        }
-        return null;
     }
 
 

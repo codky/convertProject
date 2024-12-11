@@ -27,7 +27,7 @@ public class HwpReadController {
             file.transferTo(tempFile);
 
             // HWP 파일 처리
-            String result = hwpReadService.processHwpFileWithImg(tempFile.getAbsolutePath());
+            String result = hwpReadService.processHwpFileWithImg2(tempFile.getAbsolutePath());
 
             // 임시 파일 삭제
             tempFile.delete();
