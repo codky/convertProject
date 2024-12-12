@@ -36,12 +36,19 @@ public class HwpReadService {
                 return "HWP 파일을 읽을 수 없습니다.";
             }
 
+            // 출력 폴더 생성
+            String outputFolderPath = "C:\\Users\\MEDIAZEN\\Desktop\\변환폴더(수요일까지)\\images";
+            File outputFolder = new File(outputFolderPath);
+            if (!outputFolder.exists()) {
+                outputFolder.mkdirs();
+            }
+
             // HWP 파일 순회
             int sectionIndex = 1;
+            int imageCounter = 1;
             for (Section section : hwpFile.getBodyText().getSectionList()) {
                 result.append("\n========== 섹션 ").append(sectionIndex).append(" ==========\n");
 
-                // 문단 순회
                 for (Paragraph paragraph : section.getParagraphs()) {
                     // 텍스트 처리
                     String text = paragraph.getNormalString();
@@ -53,16 +60,15 @@ public class HwpReadService {
                     if (paragraph.getControlList() != null) {
                         for (Control control : paragraph.getControlList()) {
                             if (control.getType() == ControlType.Gso) {
-                                // Gso 컨트롤 처리
                                 if (control instanceof GsoControl) {
                                     GsoControl gsoControl = (GsoControl) control;
                                     if (gsoControl.getGsoType() == GsoControlType.Picture) {
-                                        processImage((ControlPicture) gsoControl, result, hwpFile);
+                                        processImage((ControlPicture) gsoControl, result, hwpFile, outputFolder, imageCounter);
+                                        imageCounter++;
                                     }
                                 }
                             } else if (control.getType() == ControlType.Table) {
-                                // 테이블 처리 및 이미지 탐지
-                                processTable((ControlTable) control, result, filePath, hwpFile);
+                                processTable((ControlTable) control, result, hwpFile, outputFolder, imageCounter);
                             } else {
                                 result.append("기타 컨트롤: ").append(control.getType()).append("\n");
                             }
@@ -78,8 +84,7 @@ public class HwpReadService {
         return result.toString();
     }
 
-    // 테이블 처리 메서드 (이미지 포함)
-    private void processTable(ControlTable table, StringBuilder result, String filePath, HWPFile hwpFile) throws UnsupportedEncodingException {
+    private void processTable(ControlTable table, StringBuilder result, HWPFile hwpFile, File outputFolder, int imageCounter) throws UnsupportedEncodingException {
         for (Row row : table.getRowList()) {
             for (Cell cell : row.getCellList()) {
                 // 셀 텍스트 처리
@@ -88,14 +93,15 @@ public class HwpReadService {
                     result.append(cellText);
                 }
 
-                // 셀 내 컨트롤 탐지
+                // 셀 내 이미지 탐지
                 for (Paragraph paragraph : cell.getParagraphList()) {
                     if (paragraph.getControlList() != null) {
                         for (Control control : paragraph.getControlList()) {
                             if (control instanceof GsoControl) {
                                 GsoControl gsoControl = (GsoControl) control;
                                 if (gsoControl.getGsoType() == GsoControlType.Picture) {
-                                    processImage((ControlPicture) gsoControl, result, hwpFile);
+                                    processImage((ControlPicture) gsoControl, result, hwpFile, outputFolder, imageCounter);
+                                    imageCounter++;
                                 }
                             }
                         }
@@ -106,28 +112,29 @@ public class HwpReadService {
         }
     }
 
-    // 이미지 처리 메서드
-    private void processImage(ControlPicture picture, StringBuilder result, HWPFile hwpFile) {
+    private void processImage(ControlPicture picture, StringBuilder result, HWPFile hwpFile, File outputFolder, int imageCounter) {
         try {
             PictureInfo pictureInfo = picture.getShapeComponentPicture().getPictureInfo();
             int binItemID = pictureInfo.getBinItemID();
 
             // BinData 추출
-            EmbeddedBinaryData imageData = extractBinDataFromHWP(binItemID, result, hwpFile);
-            if (imageData != null) {
+            EmbeddedBinaryData embeddedBinaryData = extractBinDataFromHWP(binItemID, result, hwpFile, imageCounter);
+            if (embeddedBinaryData != null) {
                 // 이미지 파일 저장 경로 생성
-                String outputFolderPath = "C:\\Users\\MEDIAZEN\\Desktop\\변환폴더(수요일까지)\\" + hwpFile.getClass().getName();
-                File outputFolder = new File(outputFolderPath);
-                if (!outputFolder.exists()) {
-                    outputFolder.mkdirs();
-                }
-                String outputPath = outputFolderPath + "\\" + imageData.getName() + ".jpg";
+                String outputPath = outputFolder.getPath() + "\\" + embeddedBinaryData.getName();
 
+
+                // 파일 확장자 추가 (필요한 경우)
+                if (!outputPath.toLowerCase().endsWith(".bmp")) {
+                    outputPath += ".bmp";
+                }
                 // 파일 저장
                 try (FileOutputStream fos = new FileOutputStream(outputPath)) {
-                    fos.write(imageData.getData());
-                    //result.append("\n[이미지 저장 완료]: ").append(outputPath).append("\n");
+                    fos.write(embeddedBinaryData.getData());
                     System.out.println("이미지가 저장되었습니다: " + outputPath);
+                    result.append("\n[이미지 위치]").append("\n");
+                    //result.append("\n[이미지 저장 완료]: ").append(outputPath).append("\n");
+                    //result.append("\n 이미지명: ").append("BIN").append(String.format("%04d", imageCounter)).append(".bmp").append("\n");
                 }
             } else {
                 result.append("\n[이미지 없음]\n");
@@ -137,14 +144,13 @@ public class HwpReadService {
         }
     }
 
-    // BinData 추출 메서드
-    private EmbeddedBinaryData extractBinDataFromHWP(int binItemID, StringBuilder result, HWPFile hwpFile) {
+    private EmbeddedBinaryData extractBinDataFromHWP(int binItemID, StringBuilder result, HWPFile hwpFile, int imageCounter) {
         try {
             ArrayList<kr.dogfoot.hwplib.object.docinfo.BinData> binDataList = hwpFile.getDocInfo().getBinDataList();
             for (kr.dogfoot.hwplib.object.docinfo.BinData binData : binDataList) {
                 if (binData.getBinDataID() == binItemID) {
                     EmbeddedBinaryData embeddedBinaryData = hwpFile.getBinData().getEmbeddedBinaryDataList().get(binData.getBinDataID() - 1);
-                    result.append("\n 이미지명: ").append(embeddedBinaryData.getName()).append("\n");
+                    //result.append("\n 이미지명: ").append("BIN").append(String.format("%04d", imageCounter)).append(".bmp").append("\n");
                     return embeddedBinaryData;
                 }
             }
@@ -153,6 +159,8 @@ public class HwpReadService {
         }
         return null;
     }
+
+
 
 
     public String processHwpFileWithImg(String filePath) {
