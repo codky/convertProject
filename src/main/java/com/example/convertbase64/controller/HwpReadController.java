@@ -26,6 +26,8 @@ public class HwpReadController {
             File tempFile = File.createTempFile("uploaded", ".hwp");
             file.transferTo(tempFile);
 
+            //HwpReadService.readHWPContents(tempFile.getAbsolutePath());
+
             // HWP 파일 처리
             String result = hwpReadService.processHwpFileWithImg2(tempFile.getAbsolutePath());
 
