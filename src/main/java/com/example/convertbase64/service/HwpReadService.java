@@ -13,19 +13,66 @@ import kr.dogfoot.hwplib.object.bodytext.control.gso.GsoControlType;
 import kr.dogfoot.hwplib.object.bodytext.control.table.Cell;
 import kr.dogfoot.hwplib.object.bodytext.control.table.Row;
 import kr.dogfoot.hwplib.object.bodytext.paragraph.Paragraph;
+import kr.dogfoot.hwplib.object.bodytext.paragraph.text.HWPChar;
+import kr.dogfoot.hwplib.object.bodytext.paragraph.text.ParaText;
 import kr.dogfoot.hwplib.object.docinfo.borderfill.fillinfo.PictureInfo;
 import kr.dogfoot.hwplib.reader.HWPReader;
 import kr.dogfoot.hwplib.tool.objectfinder.ControlFinder;
+import kr.dogfoot.hwplib.tool.textextractor.TextExtractMethod;
+import kr.dogfoot.hwplib.tool.textextractor.TextExtractor;
+import org.apache.tika.exception.TikaException;
+import org.apache.tika.metadata.Metadata;
+import org.apache.tika.parser.ParseContext;
+import org.apache.tika.parser.hwp.HwpV5Parser;
+import org.apache.tika.sax.BodyContentHandler;
+import org.apache.tika.sax.EmbeddedContentHandler;
 import org.springframework.stereotype.Service;
+import org.xml.sax.SAXException;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.Iterator;
 
 @Service
 public class HwpReadService {
+
+    public static void readHWPContents(String file) {
+//        File file = new File("읽을 한글파일 경로");
+
+        try (FileInputStream fis = new FileInputStream(file)) {
+            // Tika 인스턴스 생성
+            BodyContentHandler handler = new BodyContentHandler();
+
+            Metadata metadata = new Metadata();
+            ParseContext pContext = new ParseContext();
+
+            // HWP 파서 생성
+            HwpV5Parser hwpParser = new HwpV5Parser();
+
+            // 파일 파싱
+            hwpParser.parse(fis, handler, metadata, pContext);
+
+            // 결과 출력
+            System.out.println("Document Body:");
+            System.out.println(handler.toString());
+
+            // 메타데이터 출력
+            System.out.println("Metadata:");
+            String[] metadataNames = metadata.names();
+            for (String name : metadataNames) {
+                System.out.println(name + ": " + metadata.get(name));
+            }
+        } catch (IOException | TikaException | SAXException e) {
+            e.printStackTrace();
+        }
+    }
 
     public String processHwpFileWithImg2(String filePath) {
         StringBuilder result = new StringBuilder();
@@ -35,6 +82,8 @@ public class HwpReadService {
             if (hwpFile == null) {
                 return "HWP 파일을 읽을 수 없습니다.";
             }
+
+            TextExtractor.extract(hwpFile, TextExtractMethod.InsertControlTextBetweenParagraphText);
 
             // 출력 폴더 생성
             String outputFolderPath = "C:\\Users\\MEDIAZEN\\Desktop\\변환폴더(수요일까지)\\images";
@@ -132,9 +181,9 @@ public class HwpReadService {
                 try (FileOutputStream fos = new FileOutputStream(outputPath)) {
                     fos.write(embeddedBinaryData.getData());
                     System.out.println("이미지가 저장되었습니다: " + outputPath);
-                    result.append("\n[이미지 위치]").append("\n");
-                    //result.append("\n[이미지 저장 완료]: ").append(outputPath).append("\n");
-                    //result.append("\n 이미지명: ").append("BIN").append(String.format("%04d", imageCounter)).append(".bmp").append("\n");
+                    //result.append("\n[이미지 위치]").append("\n");
+                    result.append("\n[이미지 저장 완료]: ").append(outputPath).append("\n");
+                    result.append("\n 이미지명: ").append(outputPath).append("\n");
                 }
             } else {
                 result.append("\n[이미지 없음]\n");
@@ -148,10 +197,25 @@ public class HwpReadService {
         try {
             ArrayList<kr.dogfoot.hwplib.object.docinfo.BinData> binDataList = hwpFile.getDocInfo().getBinDataList();
             for (kr.dogfoot.hwplib.object.docinfo.BinData binData : binDataList) {
+
+                String linkPath = binData.getAbsolutePathForLink();
+                if (linkPath == null || linkPath.isEmpty()) {
+                    linkPath = binData.getRelativePathForLink(); // 상대 경로로 대체
+                }
+                if (linkPath != null && !linkPath.isEmpty()) {
+                    loadBinaryDataFromPath(linkPath);
+
+                }
+
                 if (binData.getBinDataID() == binItemID) {
-                    EmbeddedBinaryData embeddedBinaryData = hwpFile.getBinData().getEmbeddedBinaryDataList().get(binData.getBinDataID() - 1);
+                    int getBinDataID = binData.getBinDataID();
+                    System.out.println("getBinDataID = " + getBinDataID);
+                    int binItemID1 = binItemID;
+                    System.out.println("binItemID1 = " + binItemID1);
                     //result.append("\n 이미지명: ").append("BIN").append(String.format("%04d", imageCounter)).append(".bmp").append("\n");
-                    return embeddedBinaryData;
+                    EmbeddedBinaryData embeddedBinaryData1 = hwpFile.getBinData().getEmbeddedBinaryDataList().get(binData.getBinDataID());
+                    EmbeddedBinaryData embeddedBinaryData2 = hwpFile.getBinData().getEmbeddedBinaryDataList().get(binData.getBinDataID() - 1);
+                    return embeddedBinaryData1;
                 }
             }
         } catch (Exception e) {
@@ -159,7 +223,19 @@ public class HwpReadService {
         }
         return null;
     }
-
+    private void loadBinaryDataFromPath(String path) {
+        try {
+            // 파일에서 바이너리 데이터를 로드
+            Path filePath = Paths.get(path);
+            if (Files.exists(filePath) && Files.isRegularFile(filePath)) {
+                Files.readAllBytes(filePath);
+            } else {
+                System.err.println("File not found or invalid path: " + path);
+            }
+        } catch (IOException e) {
+            System.err.println("Error while reading binary data from path: " + e.getMessage());
+        }
+    }
 
 
 
@@ -171,7 +247,6 @@ public class HwpReadService {
             if (hwpFile == null) {
                 return "HWP 파일을 읽을 수 없습니다.";
             }
-
             // HWP 파일 이름 가져오기
             File hwpFileObj = new File(filePath);
             String hwpFileName = hwpFileObj.getName().replaceFirst("\\.hwp$", "");
